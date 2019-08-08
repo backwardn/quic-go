@@ -19,6 +19,32 @@ type versioner interface {
 	GetVersion() protocol.VersionNumber
 }
 
+type tokenCache struct {
+	cache quic.TokenCache
+	gets  chan<- string
+	puts  chan<- string
+}
+
+var _ quic.TokenCache = &tokenCache{}
+
+func newTokenCache(gets, puts chan<- string) quic.TokenCache {
+	return &tokenCache{
+		cache: quic.NewLRUTokenCache(10, 4),
+		gets:  gets,
+		puts:  puts,
+	}
+}
+
+func (c *tokenCache) Put(key string, token *quic.ClientToken) {
+	c.puts <- key
+	c.cache.Put(key, token)
+}
+
+func (c *tokenCache) Get(key string) (*quic.ClientToken, bool) {
+	c.gets <- key
+	return c.cache.Get(key)
+}
+
 var _ = Describe("Handshake tests", func() {
 	var (
 		server        quic.Listener
@@ -326,6 +352,64 @@ var _ = Describe("Handshake tests", func() {
 			Expect(err.Error()).To(ContainSubstring("CRYPTO_ERROR"))
 			Expect(err.Error()).To(ContainSubstring("no application protocol"))
 			Expect(server.Close()).To(Succeed())
+		})
+	})
+
+	Context("using tokens", func() {
+		It("uses tokens provided in NEW_TOKEN frames", func() {
+			tokenChan := make(chan *quic.Token, 100)
+			serverConfig.AcceptToken = func(addr net.Addr, token *quic.Token) bool {
+				if token != nil && !token.IsRetryToken {
+					tokenChan <- token
+				}
+				return true
+			}
+
+			server, err := quic.ListenAddr("localhost:0", getTLSConfig(), serverConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			// dial the first session and receive the token
+			go func() {
+				defer GinkgoRecover()
+				_, err := server.Accept(context.Background())
+				Expect(err).ToNot(HaveOccurred())
+			}()
+
+			gets := make(chan string, 100)
+			puts := make(chan string, 100)
+			tokenCache := newTokenCache(gets, puts)
+			quicConf := &quic.Config{TokenCache: tokenCache}
+			sess, err := quic.DialAddr(
+				fmt.Sprintf("localhost:%d", server.Addr().(*net.UDPAddr).Port),
+				getTLSClientConfig(),
+				quicConf,
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(gets).To(Receive())
+			Eventually(puts).Should(Receive())
+			Expect(tokenChan).ToNot(Receive())
+			// received a token. Close this session.
+			Expect(sess.Close()).To(Succeed())
+
+			// dial the second session and verify that the token was used
+			done := make(chan struct{})
+			go func() {
+				defer GinkgoRecover()
+				_, err := server.Accept(context.Background())
+				Expect(err).ToNot(HaveOccurred())
+				close(done)
+			}()
+			sess, err = quic.DialAddr(
+				fmt.Sprintf("localhost:%d", server.Addr().(*net.UDPAddr).Port),
+				getTLSClientConfig(),
+				quicConf,
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(gets).To(Receive())
+			Expect(tokenChan).To(Receive())
+
+			Expect(sess.Close()).To(Succeed())
+			Eventually(done).Should(BeClosed())
 		})
 	})
 })
