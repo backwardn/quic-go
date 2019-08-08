@@ -435,6 +435,7 @@ var _ = Describe("Client", func() {
 		Context("quic.Config", func() {
 			It("setups with the right values", func() {
 				tracer := quictrace.NewTracer()
+				tokenCache := NewLRUTokenCache(10, 4)
 				config := &Config{
 					HandshakeTimeout:      1337 * time.Minute,
 					IdleTimeout:           42 * time.Hour,
@@ -443,6 +444,7 @@ var _ = Describe("Client", func() {
 					ConnectionIDLength:    13,
 					StatelessResetKey:     []byte("foobar"),
 					QuicTracer:            tracer,
+					TokenCache:            tokenCache,
 				}
 				c := populateClientConfig(config, false)
 				Expect(c.HandshakeTimeout).To(Equal(1337 * time.Minute))
@@ -452,6 +454,7 @@ var _ = Describe("Client", func() {
 				Expect(c.ConnectionIDLength).To(Equal(13))
 				Expect(c.StatelessResetKey).To(Equal([]byte("foobar")))
 				Expect(c.QuicTracer).To(Equal(tracer))
+				Expect(c.TokenCache).To(Equal(tokenCache))
 			})
 
 			It("errors when the Config contains an invalid version", func() {
