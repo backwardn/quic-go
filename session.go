@@ -335,6 +335,11 @@ var newClientSession = func(
 	} else {
 		s.tokenCacheKey = conn.RemoteAddr().String()
 	}
+	if s.config.TokenCache != nil {
+		if token, ok := s.config.TokenCache.Get(s.tokenCacheKey); ok {
+			s.packer.SetToken(token.data)
+		}
+	}
 	return s, s.postSetup()
 }
 

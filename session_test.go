@@ -1619,6 +1619,7 @@ var _ = Describe("Client Session", func() {
 		BeforeEach(func() {
 			mockTokenCache = NewMockTokenCache(mockCtrl)
 			tlsConf = &tls.Config{ServerName: "server"}
+			mockTokenCache.EXPECT().Get(gomock.Any())
 			quicConf.TokenCache = mockTokenCache
 		})
 
