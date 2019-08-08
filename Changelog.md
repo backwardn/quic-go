@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.13.0 (unreleased)
+
+- Add a `TokenCache` to store address validation tokens.
+
 ## v0.12.0 (2019-08-05)
 
 - Implement HTTP/3.
